@@ -1,8 +1,11 @@
 import argparse
 import ctypes
 import sys
-from config import Config
-from network_monitor import NetworkMonitor
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from config.config import Config
+from network.monitor import NetworkMonitor
+
 
 def is_admin():
     """Check if the script is being run with administrator privileges on Windows."""

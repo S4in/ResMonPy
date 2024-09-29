@@ -16,8 +16,21 @@ class NetworkMonitor:
         if config is None:
             raise ValueError("A valid Config instance must be provided.")
 
-        self.config = config  # Store the passed Config instance
+        self.config = config 
 
+        
+        self.lock = threading.Lock()
+
+        
+        self.interval = interval
+        self.total_sent = 0
+        self.total_received = 0
+        self.previous_sent = 0
+        self.previous_received = 0
+        self.sent_history = deque(maxlen=60)
+        self.received_history = deque(maxlen=60)
+
+        
         for process_name in process_names:
             self.get_pid(process_name=process_name)
 
@@ -28,20 +41,7 @@ class NetworkMonitor:
             print(log_message) 
             self.config.logger.info(log_message)  # Use the logger from the Config instance
             return
-            
-        self.interval = interval
         
-        self.total_sent = 0
-        self.total_received = 0
-
-        self.previous_sent = 0
-        self.previous_received = 0
-
-        self.sent_history = deque(maxlen=60)
-        self.received_history = deque(maxlen=60)
-
-        self.lock = threading.Lock()
-
     def get_network_statistic(self):
         connections = psutil.net_connections(kind='inet')  
         self.netstat_data = []

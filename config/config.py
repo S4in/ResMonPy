@@ -23,12 +23,12 @@ class Config:
         # Create Temp directory if it doesn't exist
         if not os.path.exists(temp_dir):
             os.makedirs(temp_dir)
-            print(f"Created temp directory: {temp_dir}")
+            
 
         # Create the monitor_logs directory if it doesn't exist
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
-            print(f"Created log directory: {self.log_dir}")
+            
 
     def setup_logging(self):
         """Set up logging with the given log directory and file."""
