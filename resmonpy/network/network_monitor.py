@@ -89,14 +89,9 @@ class NetworkMonitor:
 
             with self.lock:
                 if sport in self.monitor_ports:
-                    #print(f"Matched outgoing traffic on port {sport}")
                     self.total_sent += len(packet)
                 elif dport in self.monitor_ports:
-                    #print(f"Matched incoming traffic on port {dport}")
                     self.total_received += len(packet)
-                #else:
-                    # Log unmatched packets for debugging
-                    #print(f"Unmatched packet: sport={sport}, dport={dport}")
 
     def calculate_average_bps(self):
         while True:
