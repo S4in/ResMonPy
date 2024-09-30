@@ -1,11 +1,13 @@
 import psutil
 import time
+import sys
 from scapy.all import sniff
 from scapy.layers.inet import TCP, UDP
 from datetime import datetime
 import threading
 from collections import deque
 from config import Config
+
 
 class NetworkMonitor:
     def __init__(self, process_names, interval=1, config=None):
@@ -16,12 +18,10 @@ class NetworkMonitor:
         if config is None:
             raise ValueError("A valid Config instance must be provided.")
 
-        self.config = config 
+        self.config = config
 
-        
         self.lock = threading.Lock()
 
-        
         self.interval = interval
         self.total_sent = 0
         self.total_received = 0
@@ -30,20 +30,20 @@ class NetworkMonitor:
         self.sent_history = deque(maxlen=60)
         self.received_history = deque(maxlen=60)
 
-        
         for process_name in process_names:
             self.get_pid(process_name=process_name)
 
         self.refresh_ports()
 
         if not self.monitor_ports:
-            log_message = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - No ports to monitor for the given processes."
-            print(log_message) 
+            log_message = (f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - No ports to monitor for the given "
+                           f"processes.")
+            print(log_message)
             self.config.logger.info(log_message)  # Use the logger from the Config instance
-            return
-        
+            sys.exit(1)
+
     def get_network_statistic(self):
-        connections = psutil.net_connections(kind='inet')  
+        connections = psutil.net_connections(kind='inet')
         self.netstat_data = []
         for conn in connections:
             conn_data = {
@@ -60,7 +60,7 @@ class NetworkMonitor:
                     self.pid_list.append(proc.info['pid'])
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
-        
+
     def filter_ports(self, pid):
         ports = [conn["local_port"] for conn in self.netstat_data if conn['pid'] == pid]
         for port in ports:
@@ -83,7 +83,7 @@ class NetworkMonitor:
                 sport = packet[UDP].sport
                 dport = packet[UDP].dport
 
-            with self.lock:  
+            with self.lock:
                 if sport in self.monitor_ports:
                     self.total_sent += len(packet)
                 if dport in self.monitor_ports:
@@ -117,7 +117,7 @@ class NetworkMonitor:
 
         sniff_thread = threading.Thread(target=sniff, kwargs={
             'filter': port_filter, 'prn': self.packet_callback, 'store': 0})
-        sniff_thread.daemon = True  
+        sniff_thread.daemon = True
         sniff_thread.start()
 
     def refresh_ports_thread(self):
@@ -130,5 +130,5 @@ class NetworkMonitor:
         refresh_thread.daemon = True
         refresh_thread.start()
 
-        self.start_sniffing()  
+        self.start_sniffing()
         self.calculate_average_bps()
