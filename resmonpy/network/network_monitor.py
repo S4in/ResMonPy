@@ -6,7 +6,6 @@ from scapy.layers.inet import TCP, UDP
 from datetime import datetime
 import threading
 from collections import deque
-from config import Config
 
 
 class NetworkMonitor:
@@ -16,7 +15,8 @@ class NetworkMonitor:
         self.monitor_ports = []
 
         if config is None:
-            raise ValueError("A valid Config instance must be provided.")
+            print("A valid Config instance must be provided.")
+            sys.exit(1)
 
         self.config = config
 
@@ -34,6 +34,8 @@ class NetworkMonitor:
             self.get_pid(process_name=process_name)
 
         self.refresh_ports()
+        print("monitor ports:")
+        print(self.monitor_ports)
 
         if not self.monitor_ports:
             log_message = (f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - No ports to monitor for the given "
@@ -62,7 +64,7 @@ class NetworkMonitor:
                 pass
 
     def filter_ports(self, pid):
-        ports = [conn["local_port"] for conn in self.netstat_data if conn['pid'] == pid]
+        ports = [int(conn["local_port"]) for conn in self.netstat_data if conn['pid'] == pid]
         for port in ports:
             if port not in self.monitor_ports:
                 self.monitor_ports.append(port)
@@ -75,6 +77,8 @@ class NetworkMonitor:
                 self.filter_ports(pid)
 
     def packet_callback(self, packet):
+        sport = None
+        dport = None
         if packet.haslayer(TCP) or packet.haslayer(UDP):
             if packet.haslayer(TCP):
                 sport = packet[TCP].sport
@@ -85,9 +89,14 @@ class NetworkMonitor:
 
             with self.lock:
                 if sport in self.monitor_ports:
+                    #print(f"Matched outgoing traffic on port {sport}")
                     self.total_sent += len(packet)
-                if dport in self.monitor_ports:
+                elif dport in self.monitor_ports:
+                    #print(f"Matched incoming traffic on port {dport}")
                     self.total_received += len(packet)
+                #else:
+                    # Log unmatched packets for debugging
+                    #print(f"Unmatched packet: sport={sport}, dport={dport}")
 
     def calculate_average_bps(self):
         while True:

@@ -1,11 +1,5 @@
-import argparse
 import ctypes
-import sys
-import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from config.config import Config
-from network.monitor import NetworkMonitor
+import argparse
 
 
 def is_admin():
@@ -16,12 +10,8 @@ def is_admin():
         return False
 
 
-def main():
-    # Check if the script is running with administrator privileges
-    if not is_admin():
-        print("This script requires administrator privileges. Please run as an administrator.")
-        sys.exit(1)
-
+def parse_arguments():
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Network Monitor for Processes")
 
     parser.add_argument(
@@ -45,15 +35,4 @@ def main():
         help="Directory where log files will be stored (default: C:\\Temp\\monitor_logs)"
     )
 
-    args = parser.parse_args()
-
-    # Setup the config with the user-provided or default log directory
-    config = Config(log_dir=args.log_dir)
-
-    # Initialize the NetworkMonitor with the passed arguments and config
-    network_monitor = NetworkMonitor(process_names=args.processes, interval=args.interval, config=config)
-    network_monitor.start_monitoring()
-
-
-if __name__ == "__main__":
-    main()
+    return parser.parse_args()
