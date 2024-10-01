@@ -1,17 +1,19 @@
 import psutil
 import time
 import sys
+import os
 from scapy.all import sniff
 from scapy.layers.inet import TCP, UDP
 from datetime import datetime
 import threading
+import logging
 from collections import deque
 
 
 class NetworkMonitor:
-    def __init__(self, process_names, interval=1, config=None):
+    def __init__(self, process_dict, interval=1, config=None):
         self.netstat_data = []
-        self.pid_list = []
+        self.process_dict = process_dict
         self.monitor_ports = []
 
         if config is None:
@@ -30,10 +32,7 @@ class NetworkMonitor:
         self.sent_history = deque(maxlen=60)
         self.received_history = deque(maxlen=60)
 
-        for process_name in process_names:
-            self.get_pid(process_name=process_name)
-
-        self.refresh_ports()
+        self.update_ports()
         print("monitor ports:")
         print(self.monitor_ports)
 
@@ -55,21 +54,13 @@ class NetworkMonitor:
             }
             self.netstat_data.append(conn_data)
 
-    def get_pid(self, process_name):
-        for proc in psutil.process_iter(['pid', 'name']):
-            try:
-                if proc.info['name'] == process_name:
-                    self.pid_list.append(proc.info['pid'])
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-
     def filter_ports(self, pid):
         ports = [int(conn["local_port"]) for conn in self.netstat_data if conn['pid'] == pid]
         for port in ports:
             if port not in self.monitor_ports:
                 self.monitor_ports.append(port)
 
-    def refresh_ports(self):
+    def update_ports(self):
         with self.lock:
             self.get_network_statistic()
             self.monitor_ports.clear()
@@ -136,3 +127,21 @@ class NetworkMonitor:
 
         self.start_sniffing()
         self.calculate_average_bps()
+
+    def setup_logging(self):
+        """Set up logging with the given log directory and file."""
+        log_path = os.path.join(self.log_dir, self.log_file)
+
+        # Set up logging
+        logging.basicConfig(
+            filename=log_path,
+            level=logging.INFO,
+            format="%(asctime)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+
+        # Create the logger instance
+        self.logger = logging.getLogger()
+
+        # Log a message indicating that logging has started
+        self.logger.info(f"Logging started in {log_path}")
