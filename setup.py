@@ -7,6 +7,7 @@ setup(
     install_requires=[
         'psutil',
         'scapy'
+
     ],
     entry_points={
         'console_scripts': [

@@ -1,41 +1,9 @@
-import sys
-from collections import defaultdict
-import psutil
 import ctypes
 import argparse
-
-
-def get_pid(process_name):
-    pid = None
-    for proc in psutil.process_iter(['pid', 'name']):
-        try:
-            if proc.info['name'] == process_name:
-                pid = proc.info['pid']
-            else:
-                print(F"Process: {process_name} was not found")
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            pass
-    return pid
-
-
-def verify_extension(process_name):
-    if not process_name.lower().endswith('.exe'):
-        return process_name + '.exe'
-    return process_name
-
-
-def match_pid(processes):
-    process_dict = defaultdict(str)
-    for process_name in processes:
-        process_name = verify_extension(process_name=process_name)
-        pid = get_pid(process_name=process_name)
-        if pid:
-            process_dict[pid] = process_name
-    return process_dict
+from datetime import datetime
 
 
 def is_admin():
-    """Check if the script is being run with administrator privileges on Windows."""
     try:
         return ctypes.windll.shell32.IsUserAnAdmin()
     except:
@@ -43,7 +11,6 @@ def is_admin():
 
 
 def parse_arguments():
-    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Network Monitor for Processes")
 
     parser.add_argument(
@@ -57,14 +24,41 @@ def parse_arguments():
         "-i", "--interval",
         type=int,
         default=1,
-        help="Interval in seconds between average Bps calculations (default: 1s)"
+        help="Interval in seconds (default: 1s)"
     )
 
     parser.add_argument(
-        "-l", "--log_dir",
+        "-d", "--directory",
         type=str,
         default="C:\\Temp\\resmonpy",  # Default log directory
-        help="Directory where log files will be stored (default: C:\\Temp\\resmonpy)"
+        help="Directory where output files will be stored (default: C:\\Temp\\resmonpy)"
+    )
+    parser.add_argument(
+        "-f", "--format",
+        choices=['csv', 'json'],  # Specify the possible output formats
+        default='csv',  # Set the default format to csv
+        help="Format for output files (default: csv, options: csv, json)"
     )
 
     return parser.parse_args()
+
+
+def verify_extension(process_name):
+    if not process_name.lower().endswith('.exe'):
+        return process_name + '.exe'
+    return process_name
+
+
+def verify_processes(process_list):
+    verified_processes = []
+    for proces_name in process_list:
+        verified_processes.append(
+            verify_extension(proces_name)
+        )
+    return verified_processes
+
+
+def generate_timestamped_filename(data_category,data_format):
+    """Generate a log file name with a timestamp."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{data_category}_{timestamp}.{data_format}"

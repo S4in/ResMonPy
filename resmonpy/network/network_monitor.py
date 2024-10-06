@@ -1,147 +1,105 @@
-import psutil
-import time
-import sys
 import os
+import sys
+import csv
+import json
+import time
+import psutil
+import threading
+from datetime import datetime
 from scapy.all import sniff
 from scapy.layers.inet import TCP, UDP
-from datetime import datetime
-import threading
-import logging
-from collections import deque
+from utils import generate_timestamped_filename
 
 
 class NetworkMonitor:
     def __init__(self, process_dict, interval=1, config=None):
-        self.netstat_data = []
-        self.process_dict = process_dict
-        self.monitor_ports = []
-
         if config is None:
             print("A valid Config instance must be provided.")
             sys.exit(1)
 
         self.config = config
-
-        self.lock = threading.Lock()
-
+        print(self.config.data_format)
+        self.process_dict = process_dict
         self.interval = interval
-        self.total_sent = 0
-        self.total_received = 0
-        self.previous_sent = 0
-        self.previous_received = 0
-        self.sent_history = deque(maxlen=60)
-        self.received_history = deque(maxlen=60)
+        self.connection_dict = self.get_connections()
 
-        self.update_ports()
-        print("monitor ports:")
-        print(self.monitor_ports)
-
-        if not self.monitor_ports:
+        if not self.connection_dict:
             log_message = (f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - No ports to monitor for the given "
                            f"processes.")
             print(log_message)
-            self.config.logger.info(log_message)  # Use the logger from the Config instance
             sys.exit(1)
+        self.lock = threading.Lock()
+        self.output_file = self.init_output_file()
 
-    def get_network_statistic(self):
-        connections = psutil.net_connections(kind='inet')
-        self.netstat_data = []
-        for conn in connections:
-            conn_data = {
-                "local_port": f"{conn.laddr.port}" if conn.laddr else "N/A",
-                "status": conn.status,
-                "pid": conn.pid if conn.pid else "N/A"
-            }
-            self.netstat_data.append(conn_data)
+    def init_output_file(self):
+        if self.config.data_format == 'csv':
+            csv_file = generate_timestamped_filename("network", self.config.data_format)
+            csv_path = os.path.join(self.config.directory, csv_file)
+            with open(file=csv_path, mode='w+', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(['Timestamp', 'Process Name', 'PID', 'Port', 'Sent (B/s)', 'Received (B/s)', 'Total ('
+                                                                                                             'B/s)'])
+            return csv_path
 
-    def filter_ports(self, pid):
-        ports = [int(conn["local_port"]) for conn in self.netstat_data if conn['pid'] == pid]
-        for port in ports:
-            if port not in self.monitor_ports:
-                self.monitor_ports.append(port)
+    def get_connections(self):
+        conn_dict = {}
+        for pid in list(self.process_dict.keys()):
+            process = psutil.Process(pid)
+            connections = process.connections(kind='inet')
+            for conn in connections:
+                conn_dict[int(conn.laddr.port)] = {
+                        'pid': pid,
+                        'process_name': self.process_dict[pid],
+                        'sent': 0,
+                        'received': 0
+                    }
+
+        return conn_dict
 
     def update_ports(self):
-        with self.lock:
-            self.get_network_statistic()
-            self.monitor_ports.clear()
-            for pid in self.pid_list:
-                self.filter_ports(pid)
+        pass
 
     def packet_callback(self, packet):
-        sport = None
-        dport = None
         if packet.haslayer(TCP) or packet.haslayer(UDP):
+            src_port = None
+            dst_port = None
             if packet.haslayer(TCP):
-                sport = packet[TCP].sport
-                dport = packet[TCP].dport
+                src_port = packet[TCP].sport
+                dst_port = packet[TCP].dport
             elif packet.haslayer(UDP):
-                sport = packet[UDP].sport
-                dport = packet[UDP].dport
+                src_port = packet[UDP].sport
+                dst_port = packet[UDP].dport
 
-            with self.lock:
-                if sport in self.monitor_ports:
-                    self.total_sent += len(packet)
-                elif dport in self.monitor_ports:
-                    self.total_received += len(packet)
+            packet_size = len(packet)
 
-    def calculate_average_bps(self):
+            with self.lock:  # Lock the connection_dict for safe updates
+                if src_port in self.connection_dict:
+                    self.connection_dict[src_port]['sent'] += packet_size
+                if dst_port in self.connection_dict:
+                    self.connection_dict[dst_port]['received'] += packet_size
+
+    def save_bps(self):
         while True:
+            time.sleep(self.interval)  # Wait for the interval duration
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-            with self.lock:
-                total_sent_diff = self.total_sent - self.previous_sent
-                total_received_diff = self.total_received - self.previous_received
-
-                self.previous_sent = self.total_sent
-                self.previous_received = self.total_received
-
-                self.sent_history.append(total_sent_diff)
-                self.received_history.append(total_received_diff)
-
-            avg_sent_bps = sum(self.sent_history) / len(self.sent_history)
-            avg_received_bps = sum(self.received_history) / len(self.received_history)
-
-            log_message = f"Average Sent: {avg_sent_bps:.2f} B/s, Average Received: {avg_received_bps:.2f} B/s"
-            print(f"{timestamp} - {log_message}")
-            self.config.logger.info(log_message)  # Use the logger from the Config instance
-
-            time.sleep(self.interval)
+            with open(self.output_file, mode='a+', newline='') as file:
+                writer = csv.writer(file)
+                with self.lock:
+                    for port, data in self.connection_dict.items():
+                        pid = data['pid']
+                        process_name = data['process_name']
+                        sent_bps = data['sent'] / self.interval
+                        received_bps = data['received'] / self.interval
+                        total_bps = sent_bps + received_bps
+                        writer.writerow([timestamp, pid, process_name, port, f"{sent_bps:.2f}", f"{received_bps:.2f}", f"{total_bps:.2f}"])
+                        data['sent'] = 0
+                        data['received'] = 0
 
     def start_sniffing(self):
-        port_filter = " or ".join([f"tcp port {port} or udp port {port}" for port in self.monitor_ports])
-
-        sniff_thread = threading.Thread(target=sniff, kwargs={
-            'filter': port_filter, 'prn': self.packet_callback, 'store': 0})
-        sniff_thread.daemon = True
-        sniff_thread.start()
-
-    def refresh_ports_thread(self):
-        while True:
-            self.refresh_ports()
-            time.sleep(self.interval)
+        sniff(filter="tcp or udp", prn=self.packet_callback, store=0)
 
     def start_monitoring(self):
-        refresh_thread = threading.Thread(target=self.refresh_ports_thread)
-        refresh_thread.daemon = True
-        refresh_thread.start()
-
-        self.start_sniffing()
-        self.calculate_average_bps()
-
-    def setup_logging(self):
-        """Set up logging with the given log directory and file."""
-        log_path = os.path.join(self.log_dir, self.log_file)
-
-        # Set up logging
-        logging.basicConfig(
-            filename=log_path,
-            level=logging.INFO,
-            format="%(asctime)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        )
-
-        # Create the logger instance
-        self.logger = logging.getLogger()
-
-        # Log a message indicating that logging has started
-        self.logger.info(f"Logging started in {log_path}")
+        sniff_thread = threading.Thread(target=self.start_sniffing)
+        sniff_thread.daemon = True
+        sniff_thread.start()
+        self.save_bps()
