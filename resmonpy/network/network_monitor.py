@@ -5,6 +5,7 @@ import json
 import time
 import psutil
 import threading
+import multiprocessing
 from datetime import datetime
 from scapy.all import sniff
 from scapy.layers.inet import TCP, UDP
@@ -28,7 +29,11 @@ class NetworkMonitor:
                            f"processes.")
             print(log_message)
             sys.exit(1)
-        self.lock = threading.Lock()
+        self.lock = multiprocessing.Lock()
+        
+        if self.lock is None:
+            print("error")
+            sys.exit(1)
         self.output_file = self.init_output_file()
 
     def init_output_file(self):
@@ -99,7 +104,13 @@ class NetworkMonitor:
         sniff(filter="tcp or udp", prn=self.packet_callback, store=0)
 
     def start_monitoring(self):
-        sniff_thread = threading.Thread(target=self.start_sniffing)
-        sniff_thread.daemon = True
-        sniff_thread.start()
-        self.save_bps()
+        try:
+            sniff_thread = threading.Thread(target=self.start_sniffing)
+            sniff_thread.daemon = True
+            sniff_thread.start()
+            self.save_bps()
+        except KeyboardInterrupt:
+           print("Network monitor aborted by user")
+           sys.exit(0)
+        except Exception as ex:
+            print("Error occured while monitoring process... Exception: {}".format(str(ex))) 
