@@ -40,6 +40,14 @@ def parse_arguments():
         help="Format for output files (default: csv, options: csv, json)"
     )
 
+    parser.add_argument(
+        "-t", "--type",
+        type=str,
+        default="both",
+        required=False,
+        help="Monitor network/process/both. Default is both"
+    )
+    
     return parser.parse_args()
 
 
