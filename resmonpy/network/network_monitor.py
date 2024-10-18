@@ -5,7 +5,6 @@ import json
 import time
 import psutil
 import threading
-import multiprocessing
 from datetime import datetime
 from scapy.all import sniff
 from scapy.layers.inet import TCP, UDP
@@ -19,7 +18,6 @@ class NetworkMonitor:
             sys.exit(1)
 
         self.config = config
-        print(self.config.data_format)
         self.process_dict = process_dict
         self.interval = interval
         self.connection_dict = self.get_connections()
@@ -29,11 +27,9 @@ class NetworkMonitor:
                            f"processes.")
             print(log_message)
             sys.exit(1)
-        self.lock = multiprocessing.Lock()
-        
-        if self.lock is None:
-            print("error")
-            sys.exit(1)
+        self.lock = threading.Lock()
+
+        self.is_running = True
         self.output_file = self.init_output_file()
 
     def init_output_file(self):
@@ -53,11 +49,11 @@ class NetworkMonitor:
             connections = process.connections(kind='inet')
             for conn in connections:
                 conn_dict[int(conn.laddr.port)] = {
-                        'pid': pid,
-                        'process_name': self.process_dict[pid],
-                        'sent': 0,
-                        'received': 0
-                    }
+                    'pid': pid,
+                    'process_name': self.process_dict[pid],
+                    'sent': 0,
+                    'received': 0
+                }
 
         return conn_dict
 
@@ -77,15 +73,15 @@ class NetworkMonitor:
 
             packet_size = len(packet)
 
-            with self.lock:  # Lock the connection_dict for safe updates
+            with self.lock:
                 if src_port in self.connection_dict:
                     self.connection_dict[src_port]['sent'] += packet_size
                 if dst_port in self.connection_dict:
                     self.connection_dict[dst_port]['received'] += packet_size
 
     def save_bps(self):
-        while True:
-            time.sleep(self.interval)  # Wait for the interval duration
+        while self.is_running:
+            time.sleep(self.interval)
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             with open(self.output_file, mode='a+', newline='') as file:
                 writer = csv.writer(file)
@@ -96,7 +92,8 @@ class NetworkMonitor:
                         sent_bps = data['sent'] / self.interval
                         received_bps = data['received'] / self.interval
                         total_bps = sent_bps + received_bps
-                        writer.writerow([timestamp, pid, process_name, port, f"{sent_bps:.2f}", f"{received_bps:.2f}", f"{total_bps:.2f}"])
+                        writer.writerow([timestamp, pid, process_name, port, f"{sent_bps:.2f}", f"{received_bps:.2f}",
+                                         f"{total_bps:.2f}"])
                         data['sent'] = 0
                         data['received'] = 0
 
@@ -108,9 +105,22 @@ class NetworkMonitor:
             sniff_thread = threading.Thread(target=self.start_sniffing)
             sniff_thread.daemon = True
             sniff_thread.start()
-            self.save_bps()
+
+            save_thread = threading.Thread(target=self.save_bps)
+            save_thread.daemon = True
+            save_thread.start()
+
+            sniff_thread.join()
+            save_thread.join()
+
         except KeyboardInterrupt:
-           print("Network monitor aborted by user")
-           sys.exit(0)
+            self.is_running = False
+            print("Network monitor aborted by user")
+            sys.exit(0)
         except Exception as ex:
-            print("Error occured while monitoring process... Exception: {}".format(str(ex))) 
+            self.is_running = False
+            print("Error occurred while monitoring process... Exception: {}".format(str(ex)))
+            sys.exit(1)
+
+    def stop(self):
+        self.is_running = False

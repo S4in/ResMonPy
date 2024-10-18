@@ -6,7 +6,7 @@ from datetime import datetime
 def is_admin():
     try:
         return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
+    except (AttributeError, OSError) as ex:
         return False
 
 
@@ -23,29 +23,33 @@ def parse_arguments():
     parser.add_argument(
         "-i", "--interval",
         type=int,
-        default=1,
-        help="Interval in seconds (default: 1s)"
+        default=5,
+        required=False,
+        help="Interval in seconds (default: 5 seconds)"
     )
 
     parser.add_argument(
         "-d", "--directory",
         type=str,
-        default="C:\\Temp\\resmonpy",  # Default log directory
+        default="C:\\Temp\\resmonpy",
+        required=False,
         help="Directory where output files will be stored (default: C:\\Temp\\resmonpy)"
     )
     parser.add_argument(
         "-f", "--format",
-        choices=['csv', 'json'],  # Specify the possible output formats
-        default='csv',  # Set the default format to csv
+        choices=['csv', 'json'],
+        default='csv',
+        required=False,
         help="Format for output files (default: csv, options: csv, json)"
     )
 
     parser.add_argument(
-        "-t", "--type",
+        "-m", "--monitor",
         type=str,
-        default="both",
+        choices=['process', 'network', 'all'],
+        default="all",
         required=False,
-        help="Monitor network/process/both. Default is both"
+        help="Select type of a monitor (default: all, options: process, network, all)"
     )
     
     return parser.parse_args()
