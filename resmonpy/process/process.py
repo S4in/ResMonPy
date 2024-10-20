@@ -1,5 +1,4 @@
 import psutil
-from collections import defaultdict
 
 
 def get_pid(process_names):

@@ -1,18 +1,11 @@
-import argparse
-import ctypes
 import sys
-import threading
-from config import Config
-from network import NetworkMonitor
-from process import ProcessMonitor
-from process import get_pid
-from utils import is_admin, parse_arguments, verify_processes
 import time
-import multiprocessing
-
-
-def run_process(class_instance):
-    class_instance.start_monitoring()
+from multiprocessing import Process
+from threading import  Thread
+from resmonpy.config import Config
+from resmonpy.network import NetworkMonitor
+from resmonpy.process import ProcessMonitor, get_pid
+from resmonpy.utils import is_admin, parse_arguments, verify_processes
 
 
 def main():
@@ -24,36 +17,38 @@ def main():
     config = Config(directory=args.directory)
     process_names = verify_processes(args.processes)
     process_dict = get_pid(process_names)
+    if not process_dict:
+        print("No processes were found")
+        sys.exit(1)
 
     if args.monitor == 'network':
         network_monitor = NetworkMonitor(process_dict=process_dict, interval=args.interval, config=config)
         network_monitor.start_monitoring()
+
     elif args.monitor == 'process':
         process_monitor = ProcessMonitor(process_dict=process_dict, interval=args.interval, config=config)
         process_monitor.start_monitoring()
 
     elif args.monitor == 'all':
-        network_monitor = NetworkMonitor(process_dict=process_dict, interval=args.interval, config=config)
         process_monitor = ProcessMonitor(process_dict=process_dict, interval=args.interval, config=config)
+        network_monitor = NetworkMonitor(process_dict=process_dict, interval=args.interval, config=config)
 
+        process_monitor_thread = Thread(target=process_monitor.start_monitoring)
+        network_monitor_thread = Thread(target=network_monitor.start_monitoring)
         try:
-            process_thread = threading.Thread(target=process_monitor.start_monitoring)
-            process_thread.daemon = True
-            process_thread.start()
-            network_monitor.start_monitoring()
 
-            process_thread.join()
+            process_monitor_thread.start()
+            network_monitor_thread.start()
+
+            while process_monitor_thread.is_alive() and network_monitor_thread.is_alive():
+                time.sleep(0.1)
 
         except KeyboardInterrupt:
+            print("Monitoring aborted by user")
             process_monitor.stop()
             network_monitor.stop()
-            print("Network monitor aborted by user")
-            sys.exit(0)
-        except Exception as ex:
-            process_monitor.stop()
-            network_monitor.stop()
-            print(f"Error occurred while monitoring network and processes: {ex}")
-            sys.exit(1)
+            process_monitor_thread.join()
+            network_monitor_thread.join()
 
 
 if __name__ == "__main__":

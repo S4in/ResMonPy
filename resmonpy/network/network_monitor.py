@@ -4,15 +4,16 @@ import csv
 import json
 import time
 import psutil
-import threading
+from threading import Thread, Event, Lock
 from datetime import datetime
 from scapy.all import sniff
 from scapy.layers.inet import TCP, UDP
-from utils import generate_timestamped_filename
+from resmonpy.utils import generate_timestamped_filename
+from resmonpy.process import get_pid
 
 
 class NetworkMonitor:
-    def __init__(self, process_dict, interval=1, config=None):
+    def __init__(self, process_dict, interval, config=None):
         if config is None:
             print("A valid Config instance must be provided.")
             sys.exit(1)
@@ -27,9 +28,8 @@ class NetworkMonitor:
                            f"processes.")
             print(log_message)
             sys.exit(1)
-        self.lock = threading.Lock()
-
-        self.is_running = True
+        self.lock = Lock()
+        self.event = Event()
         self.output_file = self.init_output_file()
 
     def init_output_file(self):
@@ -57,8 +57,12 @@ class NetworkMonitor:
 
         return conn_dict
 
-    def update_ports(self):
-        pass
+    def update(self):
+        with self.lock:
+            self.process_dict = get_pid(list(self.process_dict.values()))
+            if not self.process_dict:
+                self.stop()
+            self.connection_dict = self.get_connections()
 
     def packet_callback(self, packet):
         if packet.haslayer(TCP) or packet.haslayer(UDP):
@@ -79,8 +83,8 @@ class NetworkMonitor:
                 if dst_port in self.connection_dict:
                     self.connection_dict[dst_port]['received'] += packet_size
 
-    def save_bps(self):
-        while self.is_running:
+    def save_network_usage(self):
+        while not self.event.is_set():
             time.sleep(self.interval)
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             with open(self.output_file, mode='a+', newline='') as file:
@@ -98,29 +102,32 @@ class NetworkMonitor:
                         data['received'] = 0
 
     def start_sniffing(self):
-        sniff(filter="tcp or udp", prn=self.packet_callback, store=0)
+        sniff(filter="tcp or udp", stop_filter=lambda pkt: not self.event.is_set(), prn=self.packet_callback, store=0)
+
+    def run_updates(self):
+        while not self.event.is_set():
+            time.sleep(self.interval * 10)
+            self.update()
 
     def start_monitoring(self):
+
+        sniffer = Thread(target=self.start_sniffing)
+        sniffer.daemon = True
+        data_handler = Thread(target=self.save_network_usage)
+        updater = Thread(target=self.run_updates)
+        updater.daemon = True
+
         try:
-            sniff_thread = threading.Thread(target=self.start_sniffing)
-            sniff_thread.daemon = True
-            sniff_thread.start()
-
-            save_thread = threading.Thread(target=self.save_bps)
-            save_thread.daemon = True
-            save_thread.start()
-
-            sniff_thread.join()
-            save_thread.join()
+            sniffer.start()
+            data_handler.start()
+            updater.start()
+            while not self.event.is_set():
+                time.sleep(0.1)
 
         except KeyboardInterrupt:
-            self.is_running = False
+            self.stop()
             print("Network monitor aborted by user")
-            sys.exit(0)
-        except Exception as ex:
-            self.is_running = False
-            print("Error occurred while monitoring process... Exception: {}".format(str(ex)))
-            sys.exit(1)
+            data_handler.join()
 
     def stop(self):
-        self.is_running = False
+        self.event.set()
